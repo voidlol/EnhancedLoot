@@ -12,6 +12,8 @@ local defaults = {
 	currency    = true,
 	experience  = true,
 	questmark   = true,
+	unlooted    = true,
+	qualitybg   = false,
 	fontFamily  = "Friz Quadrata TT",
 	fontOutline = "OUTLINE",
 	fontSize    = 12,
@@ -145,30 +147,63 @@ local function NewTex(parent, layer, r, g, b, a)
 	return t
 end
 
+-- size of one physical screen pixel in this frame's own coordinates
+local function PixelSize(frame)
+	local factor
+	if PixelUtil and PixelUtil.GetPixelToUIUnitFactor then
+		factor = PixelUtil.GetPixelToUIUnitFactor()
+	else
+		local _, h = GetPhysicalScreenSize()
+		factor = 768 / ((h and h > 0) and h or 768)
+	end
+	local scale = frame:GetEffectiveScale()
+	if not scale or scale <= 0 then scale = 1 end
+	return factor / scale
+end
+
+-- round to the pixel grid (even=true keeps an even pixel count so a CENTER
+-- anchor doesn't put the edges on half pixels)
+local function Snap(v, px, even)
+	local n = math.floor(v / px + 0.5)
+	if even and n % 2 == 1 then n = n + 1 end
+	return n * px
+end
+
+-- lay the four border lines out exactly one physical pixel thick
+local function SizeBorder(frame)
+	local t = frame._b
+	if not t then return end
+	local px = PixelSize(frame)
+	local top, bottom, left, right = t[1], t[2], t[3], t[4]
+	for _, tex in ipairs(t) do
+		tex:ClearAllPoints()
+		if tex.SetSnapToPixelGrid then
+			tex:SetSnapToPixelGrid(false)
+			tex:SetTexelSnappingBias(0)
+		end
+	end
+	top:SetPoint("TOPLEFT")
+	top:SetPoint("TOPRIGHT")
+	top:SetHeight(px)
+	bottom:SetPoint("BOTTOMLEFT")
+	bottom:SetPoint("BOTTOMRIGHT")
+	bottom:SetHeight(px)
+	left:SetPoint("TOPLEFT", 0, -px)
+	left:SetPoint("BOTTOMLEFT", 0, px)
+	left:SetWidth(px)
+	right:SetPoint("TOPRIGHT", 0, -px)
+	right:SetPoint("BOTTOMRIGHT", 0, px)
+	right:SetWidth(px)
+end
+
 -- 1px border made of four textures
 local function SetBorder(frame, r, g, b, a)
 	if not frame._b then
-		local top = NewTex(frame, "BORDER")
-		top:SetPoint("TOPLEFT")
-		top:SetPoint("TOPRIGHT")
-		top:SetHeight(1)
-
-		local bottom = NewTex(frame, "BORDER")
-		bottom:SetPoint("BOTTOMLEFT")
-		bottom:SetPoint("BOTTOMRIGHT")
-		bottom:SetHeight(1)
-
-		local left = NewTex(frame, "BORDER")
-		left:SetPoint("TOPLEFT", 0, -1)
-		left:SetPoint("BOTTOMLEFT", 0, 1)
-		left:SetWidth(1)
-
-		local right = NewTex(frame, "BORDER")
-		right:SetPoint("TOPRIGHT", 0, -1)
-		right:SetPoint("BOTTOMRIGHT", 0, 1)
-		right:SetWidth(1)
-
-		frame._b = { top, bottom, left, right }
+		frame._b = {
+			NewTex(frame, "BORDER"), NewTex(frame, "BORDER"),
+			NewTex(frame, "BORDER"), NewTex(frame, "BORDER"),
+		}
+		SizeBorder(frame)
 	end
 	for _, t in ipairs(frame._b) do
 		t:SetVertexColor(r, g, b, a)
@@ -218,8 +253,6 @@ local function BuildBar()
 	-- explicit sublevel so nothing on ARTWORK can end up drawn over the icon
 	b.icon = f:CreateTexture(nil, "ARTWORK", nil, 2)
 	b.icon:SetTexCoord(0.06, 0.94, 0.06, 0.94) -- WA icon zoom 0.24
-	b.icon:SetPoint("TOPLEFT", 1, -1)
-	b.icon:SetPoint("BOTTOMLEFT", 1, 1)
 
 	-- stack / quantity count on the icon (WA "name" text at ICON_BOTTOMLEFT)
 	b.count = f:CreateFontString(nil, "OVERLAY")
@@ -230,23 +263,45 @@ local function BuildBar()
 	ApplyFont(b.name)
 	b.name:SetJustifyH("LEFT")
 	b.name:SetWordWrap(false)
+	if b.name.SetMaxLines then b.name:SetMaxLines(1) end
 	b.name:SetPoint("LEFT", b.icon, "RIGHT", 5, 0)
 
 	b.right = f:CreateFontString(nil, "OVERLAY")
 	ApplyFont(b.right)
 	b.right:SetJustifyH("RIGHT")
+	-- never wrap: a wrapped price spills above and below the bar
+	b.right:SetWordWrap(false)
+	if b.right.SetMaxLines then b.right:SetMaxLines(1) end
 	b.right:SetPoint("RIGHT", -5, 0)
 
-	b.name:SetPoint("RIGHT", b.right, "LEFT", -8, 0)
+	-- price row: separate number + coin texture per denomination, laid out
+	-- right-to-left. Inline |T|t icons in one string get mis-measured by this
+	-- client and either overflow the bar or get truncated.
+	b.coinParts = {}
+	for i = 1, 3 do
+		local t = f:CreateFontString(nil, "OVERLAY")
+		ApplyFont(t)
+		t:SetWordWrap(false)
+		local ic = f:CreateTexture(nil, "OVERLAY")
+		b.coinParts[i] = { text = t, icon = ic }
+	end
 
 	SetBorder(f, 0, 0, 0, 1)
 	return b
 end
 
 local function SizeBar(b)
-	b.frame:SetSize(db.width, db.height)
 	b.frame:SetScale(db.scale)
-	b.icon:SetWidth(db.height - 2)
+	local px = PixelSize(b.frame)
+	b.px = px
+	local w, h = Snap(db.width, px, true), Snap(db.height, px, true)
+	b.frame:SetSize(w, h)
+	SizeBorder(b.frame)
+	-- icon sits inside the 1px border
+	b.icon:ClearAllPoints()
+	b.icon:SetPoint("TOPLEFT", px, -px)
+	b.icon:SetPoint("BOTTOMLEFT", px, px)
+	b.icon:SetWidth(h - 2 * px)
 	b.count:SetFont(COUNT_FONT, math.max(8, math.floor(db.height * 0.55 + 0.5)), "THICKOUTLINE")
 end
 
@@ -258,6 +313,7 @@ local function AcquireBar()
 	b.kind, b.key, b.stacks, b.amount, b.price = nil, nil, nil, nil, nil
 	b.quality, b.quest, b.pending, b.dying = nil, nil, nil, nil
 	b.displayName, b.nameText, b.nameColor, b.rightText, b.iconTexture = nil, nil, nil, nil, nil
+	b.coinValue = nil
 	b.countText, b.forceQuest = nil, nil
 
 	SizeBar(b)
@@ -266,6 +322,22 @@ local function AcquireBar()
 end
 
 local function ApplyBackdrop(b)
+	if b.kind == "lost" then
+		b.bg:SetVertexColor(0.45, 0.02, 0.02, 0.75)
+		return
+	end
+	-- optional: tint uncommon+ and quest items in their own colour (darkened so the
+	-- same-coloured name stays readable)
+	if db.qualitybg and b.kind == "loot" and (b.quest or (b.quality or 1) >= 2) then
+		local cr, cg, cb
+		if b.quest then
+			cr, cg, cb = 1, 0.82, 0
+		else
+			cr, cg, cb = QualityColor(b.quality)
+		end
+		b.bg:SetVertexColor(cr * 0.4, cg * 0.4, cb * 0.4, 0.75)
+		return
+	end
 	local r, g, bl, a = 0, 0, 0, 0.55
 	if db.darkmode and not db.lightmode then
 		r, g, bl, a = 0, 0, 0, 0.65
@@ -275,11 +347,54 @@ local function ApplyBackdrop(b)
 	b.bg:SetVertexColor(r, g, bl, a)
 end
 
+local function PriceIconSize()
+	return ((db and db.fontSize) or 13) + 2
+end
+
+-- WeakAura price layout: "12<g> 5<s> 3<c>" in bronze; returns the leftmost
+-- region so the name can stop in front of it, or nil when there is no price
+local function LayoutCoins(b)
+	local parts = b.coinParts
+	for _, p in ipairs(parts) do
+		p.text:Hide(); p.icon:Hide()
+		p.text:ClearAllPoints(); p.icon:ClearAllPoints()
+	end
+	local value = b.coinValue
+	if not value or value <= 0 then return nil end
+
+	local c = value % 100
+	local s = math.floor(value / 100) % 100
+	local g = math.floor(value / 10000)
+	local list
+	if g > 0 then
+		list = { { g, COIN.gold }, { s, COIN.silver }, { c, COIN.copper } }
+	elseif s > 0 then
+		list = { { s, COIN.silver }, { c, COIN.copper } }
+	else
+		list = { { c, COIN.copper } }
+	end
+
+	local sz = PriceIconSize()
+	local anchor, point, off = b.frame, "RIGHT", -5
+	local n = #list
+	for i = n, 1, -1 do
+		local p = parts[n - i + 1]
+		p.icon:SetTexture(list[i][2])
+		p.icon:SetSize(sz, sz)
+		p.icon:SetPoint("RIGHT", anchor, point, off, 0)
+		p.text:SetText(PRICE_COLOR .. list[i][1] .. "|r")
+		p.text:SetPoint("RIGHT", p.icon, "LEFT", -1, 0)
+		p.icon:Show(); p.text:Show()
+		anchor, point, off = p.text, "LEFT", -4
+	end
+	return anchor
+end
+
 local function Render(b)
 	local r, g, bl = 1, 1, 1
 	local q = b.quality or 1
 
-	if b.kind == "loot" then
+	if b.kind == "loot" or b.kind == "lost" then
 		r, g, bl = QualityColor(q)
 	elseif b.kind == "money" then
 		r, g, bl = 1, 0.82, 0.1
@@ -317,28 +432,20 @@ local function Render(b)
 	end
 
 	b.count:SetText(b.countText or "")
-	b.right:SetText(b.rightText or "")
-end
 
--- WeakAura price text: "12<g>  5<s>  3<c>" in bronze, single digits space-padded
-local function PriceString(price)
-	if not price or price <= 0 then return "" end
-	local sz = ((db and db.fontSize) or 13) + 2
-	local function icon(path) return "|T" .. path .. ":" .. sz .. "|t" end
-	local c = price % 100
-	local s = math.floor(price / 100) % 100
-	local g = math.floor(price / 10000)
-	local out
-	if g > 0 then
-		out = g .. icon(COIN.gold)
-			.. (s < 10 and " " or "") .. s .. icon(COIN.silver)
-			.. (c < 10 and " " or "") .. c .. icon(COIN.copper)
-	elseif s > 0 then
-		out = s .. icon(COIN.silver) .. (c < 10 and " " or "") .. c .. icon(COIN.copper)
+	-- right side: coin row for prices/money, plain text otherwise (XP)
+	local leftmost = LayoutCoins(b)
+	b.name:ClearAllPoints()
+	b.name:SetPoint("LEFT", b.icon, "RIGHT", 5, 0)
+	if leftmost then
+		b.right:SetText("")
+		b.right:Hide()
+		b.name:SetPoint("RIGHT", leftmost, "LEFT", -8, 0)
 	else
-		out = c .. icon(COIN.copper)
+		b.right:SetText(b.rightText or "")
+		b.right:Show()
+		b.name:SetPoint("RIGHT", b.right, "LEFT", -8, 0)
 	end
-	return PRICE_COLOR .. out .. "|r"
 end
 
 local function ShortNumber(n)
@@ -368,8 +475,7 @@ end
 local function ShowEntry(b)
 	b.age = 0
 	b.dying = nil
-	b.frame:SetSize(db.width, db.height)
-	b.frame:SetScale(db.scale)
+	SizeBar(b)
 	b.frame:Show()
 	table.insert(bars, 1, b)
 	while #bars > db.maxbars do
@@ -377,7 +483,8 @@ local function ShowEntry(b)
 	end
 	Layout()
 	b.curY = b.targetY + (db.growth == "DOWN" and 10 or -10)
-	b.frame:SetPoint(db.anchorPoint, UIParent, db.anchorPoint, db.x, b.curY)
+	local px = b.px or 1
+	b.frame:SetPoint(db.anchorPoint, UIParent, db.anchorPoint, Snap(db.x, px), Snap(b.curY, px))
 	b.frame:SetAlpha(0)
 	Render(b)
 end
@@ -433,10 +540,11 @@ local function UpdateLootBar(b)
 	b.nameText = name .. "|cff00ff00 x" .. (b.stacks or 1) .. "|r"
 
 	-- icon shows how many you now have in bags (refreshed on BAG_UPDATE_DELAYED)
-	local have = BagCount(b.key)
+	local have = b.kind == "loot" and BagCount(b.key) or nil
 	b.countText = have and tostring(have) or nil
 
-	b.rightText = PriceString(b.price)
+	b.coinValue = b.price
+	b.rightText = nil
 	Render(b)
 end
 
@@ -453,6 +561,31 @@ local function AddLoot(itemID, count, forceQuest)
 	else
 		b = AcquireBar()
 		b.kind = "loot"
+		b.key = itemID
+		b.stacks = count
+		b.pending = true
+		b.forceQuest = forceQuest
+		ShowEntry(b)
+	end
+
+	UpdateLootBar(b)
+end
+
+-- item that stayed in the loot window (bags full, closed early, ...)
+local function AddUnlooted(itemID, count, forceQuest)
+	if not db.unlooted then return end
+	count = count or 1
+	local _, quality, _, _, quest = ItemData(itemID)
+	quest = quest or forceQuest
+	if not quest and db.rarity[(quality or 1) + 1] == false then return end
+
+	local b = FindBar("lost", itemID)
+	if b then
+		b.stacks = (b.stacks or 1) + count
+		b.age = 0
+	else
+		b = AcquireBar()
+		b.kind = "lost"
 		b.key = itemID
 		b.stacks = count
 		b.pending = true
@@ -483,7 +616,8 @@ local function AddMoney(delta)
 	b.iconTexture = COIN_ICON_SMALL
 	if absAmount > 99 then b.iconTexture = COIN_ICON_MEDIUM end
 	if absAmount > 9999 then b.iconTexture = COIN_ICON_LARGE end
-	b.rightText = PriceString(b.amount)
+	b.coinValue = b.amount
+	b.rightText = nil
 	Render(b)
 end
 
@@ -498,10 +632,10 @@ local function AddXP(amount, isQuest)
 		b = AcquireBar()
 		b.kind = "xp"
 		b.key = key
-		b.quality = 4 -- WA paints the XP bar epic purple
+		b.quality = 1
 		b.iconTexture = XP_ICON
 		b.nameText = "Experience"
-		b.nameColor = HexColor(QualityColor(4))
+		b.nameColor = "ffffff"
 		b.amount = amount
 		ShowEntry(b)
 	end
@@ -518,6 +652,7 @@ local function RefreshLayout()
 		SizeBar(b)
 		ApplyFont(b.name)
 		ApplyFont(b.right)
+		for _, p in ipairs(b.coinParts) do ApplyFont(p.text) end
 		Render(b)
 	end
 	if mover and mover.title then
@@ -602,7 +737,8 @@ driver:SetScript("OnUpdate", function(_, dt)
 		else
 			local k = Clamp(dt * 14, 0, 1)
 			b.curY = b.curY + (b.targetY - b.curY) * k
-			b.frame:SetPoint(db.anchorPoint, UIParent, db.anchorPoint, db.x, b.curY)
+			local px = b.px or 1
+	b.frame:SetPoint(db.anchorPoint, UIParent, db.anchorPoint, Snap(db.x, px), Snap(b.curY, px))
 			if db.glow then
 				b.glow:SetAlpha(0.25 + 0.12 * math.sin(GetTime() * 4))
 			end
@@ -615,6 +751,8 @@ end)
 local events = CreateFrame("Frame")
 local lastMoney = 0
 
+local ConsumeLooted -- defined with the loot-window tracking below
+
 local function OnLoot(msg)
 	if type(msg) ~= "string" then return end
 	local me = UnitName("player")
@@ -626,6 +764,7 @@ local function OnLoot(msg)
 	if not id then return end
 
 	local count = tonumber(msg:match("|h%[.-%]|h|r x(%d+)")) or tonumber(msg:match("(%d+)%.$")) or 1
+	ConsumeLooted(id, count)
 	AddLoot(id, count)
 end
 
@@ -643,6 +782,116 @@ local function OnXP(msg)
 	AddXP(amount, msg:lower():find("quest", 1, true) ~= nil)
 end
 
+-- snapshot the loot window when it opens, drop slots as they get looted,
+-- and on close report whatever is still left
+local lootSlots = {}
+local lootCleared = {} -- slots already taken this loot session
+local reported = {} -- "sourceGUID:itemID" -> GetTime(), so re-opening a corpse doesn't repeat
+
+local function SnapshotLoot()
+	if not GetNumLootItems then return end
+	local n = GetNumLootItems() or 0
+	for slot = 1, n do
+		if not lootSlots[slot] and not lootCleared[slot] then
+			local isItem = true
+			if GetLootSlotType then
+				local t = GetLootSlotType(slot)
+				isItem = (t == 1) or (Enum and Enum.LootSlotType and t == Enum.LootSlotType.Item)
+			end
+			local link = isItem and GetLootSlotLink and GetLootSlotLink(slot)
+			local id = link and tonumber(link:match("item:(%d+)"))
+			if id then
+				local _, _, quantity, _, _, locked, isQuestItem = GetLootSlotInfo(slot)
+				local source = GetLootSourceInfo and GetLootSourceInfo(slot)
+				lootSlots[slot] = {
+					id = id,
+					count = (quantity and quantity > 0) and quantity or 1,
+					locked = locked, -- group roll / not ours to take
+					quest = isQuestItem,
+					source = source or "?",
+					bag = BagCount(id) or 0, -- bag count before looting
+				}
+			end
+		end
+	end
+end
+
+-- Fast autoloot can close the window before LOOT_SLOT_CLEARED / the loot chat
+-- line arrive, so leftovers are only *candidates* at LOOT_CLOSED. They are
+-- confirmed after a short grace period, and dropped if the item turned up in
+-- the loot chat or in the bags meanwhile.
+local LOST_GRACE = 1.5
+local pendingLost = {}
+
+ConsumeLooted = function(id, count)
+	local left = count or 1
+	for slot, info in pairs(lootSlots) do
+		if left <= 0 then break end
+		if info.id == id then
+			local take = math.min(left, info.count)
+			info.count = info.count - take
+			left = left - take
+			if info.count <= 0 then lootSlots[slot] = nil end
+		end
+	end
+	for i = #pendingLost, 1, -1 do
+		if left <= 0 then break end
+		local info = pendingLost[i]
+		if info.id == id then
+			local take = math.min(left, info.count)
+			info.count = info.count - take
+			left = left - take
+			if info.count <= 0 then table.remove(pendingLost, i) end
+		end
+	end
+end
+
+local function FlushUnlooted()
+	if #pendingLost == 0 then return end
+	local now = GetTime()
+	for k, t in pairs(reported) do
+		if now - t > 300 then reported[k] = nil end
+	end
+	for i = #pendingLost, 1, -1 do
+		local info = pendingLost[i]
+		if now - info.t >= LOST_GRACE then
+			table.remove(pendingLost, i)
+			local gained = (BagCount(info.id) or 0) - info.bag
+			local missing = info.count - math.max(0, gained)
+			local key = info.source .. ":" .. info.id
+			if missing > 0 and not reported[key] then
+				reported[key] = now
+				AddUnlooted(info.id, missing, info.quest)
+			end
+		end
+	end
+end
+
+local function ReportUnlooted()
+	local now = GetTime()
+	for _, info in pairs(lootSlots) do
+		if not info.locked and info.count > 0 then
+			info.t = now
+			pendingLost[#pendingLost + 1] = info
+		end
+	end
+	wipe(lootSlots)
+	wipe(lootCleared)
+end
+
+local lostTicker = CreateFrame("Frame")
+local lostElapsed = 0
+lostTicker:SetScript("OnUpdate", function(_, dt)
+	lostElapsed = lostElapsed + dt
+	if lostElapsed < 0.25 then return end
+	lostElapsed = 0
+	if db then FlushUnlooted() end
+end)
+
+events:RegisterEvent("LOOT_READY")
+events:RegisterEvent("LOOT_OPENED")
+events:RegisterEvent("LOOT_SLOT_CLEARED")
+events:RegisterEvent("LOOT_CLOSED")
 events:RegisterEvent("ADDON_LOADED")
 events:RegisterEvent("PLAYER_LOGIN")
 events:RegisterEvent("PLAYER_ENTERING_WORLD")
@@ -651,6 +900,8 @@ events:RegisterEvent("CHAT_MSG_COMBAT_XP_GAIN")
 events:RegisterEvent("PLAYER_MONEY")
 events:RegisterEvent("GET_ITEM_INFO_RECEIVED")
 events:RegisterEvent("BAG_UPDATE_DELAYED")
+events:RegisterEvent("UI_SCALE_CHANGED")
+events:RegisterEvent("DISPLAY_SIZE_CHANGED")
 
 events:SetScript("OnEvent", function(_, event, arg1)
 	if event == "ADDON_LOADED" and arg1 == "EnhancedLoot" then
@@ -674,10 +925,18 @@ events:SetScript("OnEvent", function(_, event, arg1)
 		OnMoney()
 	elseif event == "CHAT_MSG_COMBAT_XP_GAIN" then
 		OnXP(arg1)
+	elseif event == "UI_SCALE_CHANGED" or event == "DISPLAY_SIZE_CHANGED" then
+		if db then RefreshLayout() end
+	elseif event == "LOOT_READY" or event == "LOOT_OPENED" then
+		SnapshotLoot()
+	elseif event == "LOOT_SLOT_CLEARED" then
+		if arg1 then lootSlots[arg1] = nil; lootCleared[arg1] = true end
+	elseif event == "LOOT_CLOSED" then
+		ReportUnlooted()
 	elseif event == "GET_ITEM_INFO_RECEIVED" or event == "BAG_UPDATE_DELAYED" then
 		local all = event == "BAG_UPDATE_DELAYED"
 		for _, b in ipairs(bars) do
-			if b.kind == "loot" and (all or b.pending) then
+			if (b.kind == "loot" and (all or b.pending)) or (b.kind == "lost" and b.pending) then
 				UpdateLootBar(b)
 			end
 		end
@@ -701,6 +960,8 @@ local function Help()
 	Print("  /el darkmode on|off   /el lightmode on|off")
 	Print("  /el glow on|off")
 	Print("  /el currency on|off   /el experience on|off")
+	Print("  /el unlooted on|off     red bars for items left in the loot window")
+	Print("  /el qualitybg on|off    tint green/blue/epic/legendary/quest item bars")
 	Print("  /el rarity <0-6> on|off")
 	Print("  /el questmark on|off    gold ! on quest items")
 	Print("  /el font <name>         SharedMedia font family (/el fonts)")
@@ -742,6 +1003,17 @@ end
 function handlers.currency(v)
 	db.currency = Bool(v)
 	Print("currency = " .. tostring(db.currency))
+end
+
+function handlers.qualitybg(v)
+	db.qualitybg = Bool(v)
+	Print("qualitybg = " .. tostring(db.qualitybg))
+	RefreshLayout()
+end
+
+function handlers.unlooted(v)
+	db.unlooted = Bool(v)
+	Print("unlooted = " .. tostring(db.unlooted))
 end
 
 function handlers.experience(v)
@@ -867,8 +1139,10 @@ end
 local function Preview()
 	AddLoot(2589, 3)          -- Linen Cloth
 	AddLoot(723, 1, true)     -- Goretusk Liver, forced to show as a quest item
+	AddLoot(19019, 1)         -- Thunderfury (legendary) for the quality tint
 	AddMoney(12345)
 	AddXP(350, false)
+	AddUnlooted(2592, 2)      -- Wool Cloth, as if bags were full
 end
 EnhancedLoot_Preview = Preview
 
@@ -1274,6 +1548,17 @@ local function BuildOptions()
 		function() return db.questmark ~= false end,
 		function(v) db.questmark = v end,
 		function() RefreshLayout() end)
+
+	yChecks = yChecks - 24
+
+	w.qualitybg = CreateCheck(panel, "Quality-coloured background", x, yChecks,
+		function() return db.qualitybg end,
+		function(v) db.qualitybg = v end,
+		function() RefreshLayout() end)
+
+	w.unlooted = CreateCheck(panel, "Unlooted items (red)", colB, yChecks,
+		function() return db.unlooted ~= false end,
+		function(v) db.unlooted = v end)
 
 	y = yChecks - 36
 
