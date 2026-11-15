@@ -1,13 +1,13 @@
 # Enhanced Loot
 
-Standalone WoW addon that replaces the **Enhanced_Loot** WeakAura (`wago.io/UihWPxSyL`). No WeakAuras required.
+Clean pop-up bars for **looted items**, **money gained** and **experience gained**. No dependencies.
 
-It shows short-lived bars for **looted items**, **money gained** and **experience gained**, styled after the original aura:
-a see-through black bar with a black border, the icon flush left, a quality-coloured name, and the vendor price in bronze with coin icons.
+Each bar is a see-through black bar with a 1px border, the icon flush left, a quality-coloured name, and the vendor price in bronze with coin icons.
+Items you couldn't loot (bags full, window closed early) show up as **dark red** bars.
 
-Target client: **WoW Forever** live (1.60.x, `## Interface: 16001`).
+Target client: **WoW Forever** live (1.60.x, `## Interface: 16001`). Works with any client language.
 
-Author: **voidlol** ([github.com/voidlol](https://github.com/voidlol))
+Author: **voidlol** ([github.com/voidlol](https://github.com/voidlol)) · License: [MIT](LICENSE)
 
 ## Install
 
@@ -20,11 +20,13 @@ Download a zip from [Releases](../../releases) and extract the `EnhancedLoot` fo
 
 | Command | Effect |
 |---|---|
-| `/el test` | preview bars (loot, quest item, money, XP) |
+| `/el test` | preview bars (loot, quest item, legendary, money, XP, unlooted) |
 | `/el duration <sec>` | how long a bar stays (default 5) |
 | `/el darkmode on\|off` / `/el lightmode on\|off` | black / white backdrop |
+| `/el qualitybg on\|off` | tint green / blue / epic / legendary / quest item bars in their colour (default off) |
 | `/el glow on\|off` | pulsing glow |
 | `/el currency on\|off` / `/el experience on\|off` | show money / XP gains |
+| `/el unlooted on\|off` | red bars for items left in the loot window (default on) |
 | `/el rarity <0-6> on\|off` | item quality filter |
 | `/el questmark on\|off` | quest "!" icon before quest items |
 | `/el font <name>` / `/el fontsize <n>` / `/el outline none\|outline\|thick` | text style (SharedMedia aware, `/el fonts`) |
@@ -33,7 +35,7 @@ Download a zip from [Releases](../../releases) and extract the `EnhancedLoot` fo
 | `/el unlock` / `/el lock` | drag the anchor to move the stack |
 | `/el reset` | restore defaults |
 
-Settings are saved in `EnhancedLootDB` (per account).
+Settings are saved in `EnhancedLootDB` (per account). The settings panel can't open in combat.
 
 ## Behaviour
 
@@ -41,10 +43,26 @@ Settings are saved in `EnhancedLootDB` (per account).
 |---|---|---|---|---|
 | Loot | `CHAT_MSG_LOOT` (own loot) | item icon, bag count on it | quality colour + green `xN` | vendor price |
 | Money | `PLAYER_MONEY` (gains) | coin pile, size by amount | `Coins` | amount with coin icons |
-| XP | `CHAT_MSG_COMBAT_XP_GAIN` | XP icon | `Experience` (purple) | green `+N` |
+| XP | `CHAT_MSG_COMBAT_XP_GAIN` | XP icon | `Experience` | green `+N` |
+| Unlooted | loot window closed with items left | item icon | quality colour + `xN`, dark red bar | vendor price |
 
-Repeated gains of the same item, money or XP kind merge into the existing bar and reset its timer.
-Quest items skip the quality filter and get Blizzard's quest "!" icon.
+- Repeated gains of the same item, money or XP kind merge into the existing bar and reset its timer.
+- Quest items skip the quality filter and get Blizzard's quest "!" icon.
+- **Own loot** is identified by the looter's GUID from the event, falling back to the client's own localized loot
+  templates (`LOOT_ITEM_SELF*`), so it works in every language and never picks up other players' loot.
+  Kill vs. quest XP is told apart with the localized `COMBATLOG_XPGAIN_FIRSTPERSON` template.
+- **Unlooted items** are confirmed 1.5 s after the loot window closes, and only if the item neither appeared in the
+  loot chat nor in your bags, so fast autoloot doesn't cause false alarms. Items locked for a group roll are ignored,
+  and re-opening the same corpse within 5 minutes doesn't repeat them.
+- Borders are exactly one physical pixel; bar size and position snap to the pixel grid for your UI scale.
+
+## Files
+
+| File | Contents |
+|---|---|
+| `EnhancedLoot.toc` | addon manifest |
+| `EnhancedLoot.lua` | bars, event handling, loot/XP parsing, slash commands |
+| `Options.lua` | settings panel |
 
 ## Releasing
 
@@ -56,5 +74,5 @@ git tag -a v1.1.0 -m "v1.1.0"
 git push origin v1.1.0
 ```
 
-The workflow needs *Settings → Actions → General → Workflow permissions* set to **Read and write**.
-To also upload to CurseForge, WoWInterface or Wago, add `CF_API_KEY`, `WOWI_API_TOKEN` or `WAGO_API_TOKEN` as repository secrets.
+To also upload to CurseForge or Wago, add `CF_API_KEY` or `WAGO_API_TOKEN` as repository secrets
+(WoWInterface has no Forever category).
