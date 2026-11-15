@@ -1,0 +1,10 @@
+## Interface: 16001
+## Title: Enhanced Loot
+## Notes: Standalone loot / money / XP gain bars. Replacement for the "Enhanced_Loot" WeakAura.
+## Notes-ruRU: Отдельные полосы для добычи, денег и опыта. Замена WeakAura "Enhanced_Loot".
+## Author: voidlol
+## Version: @project-version@
+## SavedVariables: EnhancedLootDB
+## X-Category: Interface Enhancements
+
+EnhancedLoot.lua

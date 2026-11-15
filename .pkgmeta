@@ -1,0 +1,5 @@
+package-as: EnhancedLoot
+
+ignore:
+  - README.md
+  - .github
