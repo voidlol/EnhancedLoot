@@ -3,6 +3,7 @@
 ## Notes: Standalone loot / money / XP gain bars. Replacement for the "Enhanced_Loot" WeakAura.
 ## Notes-ruRU: Отдельные полосы для добычи, денег и опыта. Замена WeakAura "Enhanced_Loot".
 ## Author: voidlol
+## X-Website: https://github.com/voidlol/EnhancedLoot
 ## Version: @project-version@
 ## SavedVariables: EnhancedLootDB
 ## X-Category: Interface Enhancements

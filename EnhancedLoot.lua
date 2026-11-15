@@ -1,7 +1,8 @@
 -- Enhanced Loot
 -- Standalone loot / money / XP gain bars.
 -- Reimplementation of the "Enhanced_Loot" WeakAura (wago.io/UihWPxSyL) without WeakAuras.
--- Target: Classic Era client (Interface 16001), Lua 5.1.
+-- Author: voidlol - https://github.com/voidlol/EnhancedLoot
+-- Target: WoW Forever live client (1.60.x, Interface 16001), Lua 5.1.
 
 local defaults = {
 	duration    = 5,

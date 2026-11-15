@@ -5,7 +5,9 @@ Standalone WoW addon that replaces the **Enhanced_Loot** WeakAura (`wago.io/UihW
 It shows short-lived bars for **looted items**, **money gained** and **experience gained**, styled after the original aura:
 a see-through black bar with a black border, the icon flush left, a quality-coloured name, and the vendor price in bronze with coin icons.
 
-Target client: **Interface 16001** (WoW Forever).
+Target client: **WoW Forever** live (1.60.x, `## Interface: 16001`).
+
+Author: **voidlol** ([github.com/voidlol](https://github.com/voidlol))
 
 ## Install
 
