@@ -13,11 +13,10 @@ jobs:
     runs-on: ubuntu-latest
 
     env:
-      # optional: add these repo secrets to also upload to CurseForge / WoWInterface / Wago
-      CF_API_KEY: ${{ secrets.CF_API_KEY }}
-      WOWI_API_TOKEN: ${{ secrets.WOWI_API_TOKEN }}
+      # CurseForge project id is set in the TOC (X-Curse-Project-ID)
+      CF_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
       WAGO_API_TOKEN: ${{ secrets.WAGO_API_TOKEN }}
-      GITHUB_OAUTH: ${{ secrets.GITHUB_TOKEN }}
+      GH_API_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
     steps:
       - name: Clone project

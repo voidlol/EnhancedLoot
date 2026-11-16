@@ -74,5 +74,6 @@ git tag -a v1.1.0 -m "v1.1.0"
 git push origin v1.1.0
 ```
 
-To also upload to CurseForge or Wago, add `CF_API_KEY` or `WAGO_API_TOKEN` as repository secrets
-(WoWInterface has no Forever category).
+The same run uploads the zip to [CurseForge](https://www.curseforge.com/) (project `1807543`, set by
+`X-Curse-Project-ID` in the TOC) using the `CF_API_TOKEN` repository secret. Wago works the same way with
+`WAGO_API_TOKEN` and an `X-Wago-ID` line. WoWInterface has no Forever category.
