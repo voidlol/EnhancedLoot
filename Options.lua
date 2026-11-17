@@ -377,6 +377,15 @@ local function BuildOptions()
 		function() return ns.db.unlooted ~= false end,
 		function(v) ns.db.unlooted = v end)
 
+	yChecks = yChecks - 24
+
+	w.tooltips = CreateCheck(panel, "Item tooltip on mouseover", x, yChecks,
+		function() return ns.db.tooltips ~= false end,
+		function(v)
+			ns.db.tooltips = v
+			if ns.ApplyTooltips then ns.ApplyTooltips() end
+		end)
+
 	y = yChecks - 36
 
 	CreateHeader(panel, "Item quality filter", x, y)

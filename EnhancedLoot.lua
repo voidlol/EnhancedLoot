@@ -16,6 +16,7 @@ local defaults = {
 	questmark   = true,
 	unlooted    = true,
 	qualitybg   = false,
+	tooltips    = true,
 	fontFamily  = "Friz Quadrata TT",
 	fontOutline = "OUTLINE",
 	fontSize    = 12,
@@ -236,6 +237,32 @@ local function RemoveBar(index)
 	end
 end
 
+-- ============================================================== tooltips
+
+-- Mouseover tooltip for item bars. The link comes from the same compatibility
+-- path the bars use (this build has no global GetItemInfo), with the item
+-- string as a last resort.
+local function ItemTooltip(frame, id)
+	if not (GameTooltip and GameTooltip.SetOwner) then return false end
+	local link
+	if _GetItemInfo then
+		local _, l = _GetItemInfo(id)
+		link = l
+	end
+	-- anchor to the bar, not the cursor: re-owning the tooltip every frame (the
+	-- usual ANCHOR_CURSOR trick) wipes its contents on this client
+	GameTooltip:SetOwner(frame, "ANCHOR_RIGHT")
+	if link and GameTooltip.SetHyperlink then
+		GameTooltip:SetHyperlink(link)
+	elseif GameTooltip.SetItemByID then
+		GameTooltip:SetItemByID(id)
+	elseif GameTooltip.SetHyperlink then
+		GameTooltip:SetHyperlink("item:" .. tostring(id))
+	end
+	GameTooltip:Show()
+	return true
+end
+
 local function BuildBar()
 	local f = CreateFrame("Frame", nil, UIParent)
 	f:SetSize(db.width, db.height)
@@ -289,7 +316,46 @@ local function BuildBar()
 	end
 
 	SetBorder(f, 0, 0, 0, 1)
+	f.bar = b
 	return b
+end
+
+-- tooltips are opt-out: with db.tooltips off the bars stay click-through, which
+-- is what you want while fighting under them
+local function BarOnEnter(self)
+	local bar = self.bar
+	if not bar then return end
+	-- holding the cursor on a bar keeps it on screen (see the driver)
+	bar.hovered = true
+	if db.tooltips == false then return end
+	local id = (bar.kind == "loot" or bar.kind == "lost") and bar.key
+	if id then ItemTooltip(self, id) end
+end
+
+local function BarOnLeave(self)
+	local bar = self.bar
+	if bar then bar.hovered = nil end
+	if GameTooltip then GameTooltip:Hide() end
+end
+
+local function ApplyBarMouse(b)
+	local f = b.frame
+	if db.tooltips == false then
+		f:SetScript("OnUpdate", nil)
+		f:SetScript("OnEnter", nil)
+		f:SetScript("OnLeave", nil)
+		f:EnableMouse(false)
+		if GameTooltip then GameTooltip:Hide() end
+	else
+		f:EnableMouse(true)
+		f:SetScript("OnEnter", BarOnEnter)
+		f:SetScript("OnLeave", BarOnLeave)
+	end
+end
+
+local function ApplyTooltips()
+	for _, b in ipairs(bars) do ApplyBarMouse(b) end
+	for _, b in ipairs(pool) do ApplyBarMouse(b) end
 end
 
 local function SizeBar(b)
@@ -316,9 +382,10 @@ local function AcquireBar()
 	b.quality, b.quest, b.pending, b.dying = nil, nil, nil, nil
 	b.displayName, b.nameText, b.nameColor, b.rightText, b.iconTexture = nil, nil, nil, nil, nil
 	b.coinValue = nil
-	b.countText, b.forceQuest = nil, nil
+	b.countText, b.forceQuest, b.hovered = nil, nil, nil
 
 	SizeBar(b)
+	ApplyBarMouse(b)
 	b.frame:SetAlpha(1)
 	return b
 end
@@ -712,35 +779,53 @@ end
 -- ============================================================== driver
 
 local driver = CreateFrame("Frame")
+-- kept as a helper: a missed OnLeave (bar moved out from under a still cursor,
+-- frame swapped) would otherwise leave a bar frozen forever
+local function CursorOver(f)
+	if GetMouseFocus then return GetMouseFocus() == f end
+	return true
+end
+
 driver:SetScript("OnUpdate", function(_, dt)
 	if not db or #bars == 0 then return end
 	for i = #bars, 1, -1 do
 		local b = bars[i]
-		b.age = b.age + dt
 
-		if not b.dying and b.age >= db.duration then
-			b.dying = 0
-		end
+		if b.hovered and not CursorOver(b.frame) then b.hovered = nil end
 
-		local a
-		if b.dying then
-			b.dying = b.dying + dt
-			a = 1 - (b.dying / db.fadeOut)
-		elseif b.age < db.fadeIn then
-			a = b.age / db.fadeIn
+		if b.hovered then
+			-- the cursor is on the bar: freeze its timer and cancel a fade that
+			-- is already running. Position still follows the stack so it never
+			-- jumps when the cursor leaves.
+			b.dying = nil
+			b.frame:SetAlpha(db.alpha)
 		else
-			a = 1
+			b.age = b.age + dt
+
+			if not b.dying and b.age >= db.duration then
+				b.dying = 0
+			end
+
+			local a
+			if b.dying then
+				b.dying = b.dying + dt
+				a = 1 - (b.dying / db.fadeOut)
+			elseif b.age < db.fadeIn then
+				a = b.age / db.fadeIn
+			else
+				a = 1
+			end
+
+			b.frame:SetAlpha(Clamp(a, 0, 1) * db.alpha)
 		end
 
-		b.frame:SetAlpha(Clamp(a, 0, 1) * db.alpha)
-
-		if b.dying and b.dying >= db.fadeOut then
+		if not b.hovered and b.dying and b.dying >= db.fadeOut then
 			RemoveBar(i)
 		else
 			local k = Clamp(dt * 14, 0, 1)
 			b.curY = b.curY + (b.targetY - b.curY) * k
 			local px = b.px or 1
-	b.frame:SetPoint(db.anchorPoint, UIParent, db.anchorPoint, Snap(db.x, px), Snap(b.curY, px))
+			b.frame:SetPoint(db.anchorPoint, UIParent, db.anchorPoint, Snap(db.x, px), Snap(b.curY, px))
 			if db.glow then
 				b.glow:SetAlpha(0.25 + 0.12 * math.sin(GetTime() * 4))
 			end
@@ -775,8 +860,10 @@ local function Patterns(...)
 end
 
 -- own-loot templates; the *_MULTIPLE ones must be tried first
-local SELF_LOOT_MULTI = Patterns(LOOT_ITEM_SELF_MULTIPLE, LOOT_ITEM_PUSHED_SELF_MULTIPLE, LOOT_ITEM_CREATED_SELF_MULTIPLE)
-local SELF_LOOT = Patterns(LOOT_ITEM_SELF, LOOT_ITEM_PUSHED_SELF, LOOT_ITEM_CREATED_SELF)
+local SELF_LOOT_MULTI = Patterns(LOOT_ITEM_SELF_MULTIPLE, LOOT_ITEM_PUSHED_SELF_MULTIPLE,
+	LOOT_ITEM_CREATED_SELF_MULTIPLE, LOOT_ITEM_BONUS_ROLL_SELF_MULTIPLE)
+local SELF_LOOT = Patterns(LOOT_ITEM_SELF, LOOT_ITEM_PUSHED_SELF, LOOT_ITEM_CREATED_SELF, LOOT_ITEM_BONUS_ROLL_SELF)
+local HAVE_SELF_TEMPLATES = #SELF_LOOT_MULTI + #SELF_LOOT > 0
 -- "%s dies, you gain %d experience." (rested/group bonus text only follows it)
 local XP_KILL = Patterns(COMBATLOG_XPGAIN_FIRSTPERSON)
 
@@ -812,8 +899,15 @@ local function OnLoot(msg, ...)
 		end
 	end
 
-	local mine = LootedByPlayer(...)
-	if mine == nil then mine = selfMsg end
+	-- Only "You receive loot/item" lines are loot. Group-roll lines ("You have
+	-- selected Need for", "You won") carry our GUID too, so the GUID alone
+	-- isn't enough; it can only veto a line that names someone else.
+	local mine
+	if HAVE_SELF_TEMPLATES then
+		mine = selfMsg and LootedByPlayer(...) ~= false
+	else
+		mine = LootedByPlayer(...)
+	end
 	if not mine then return end
 
 	-- fallback count: first number after the item link ("...|h|rx3.")
@@ -855,6 +949,24 @@ end
 local lootSlots = {}
 local lootCleared = {} -- slots already taken this loot session
 local reported = {} -- "sourceGUID:itemID" -> GetTime(), so re-opening a corpse doesn't repeat
+local rolling = {} -- itemID -> GetTime() of the last group roll started for it
+
+-- true when the group's loot rules send items at/above the threshold to a roll
+-- or to the master looter instead of letting us take them
+local function GroupRollsLoot()
+	if not (IsInGroup and IsInGroup()) then return false end
+	local method
+	if C_PartyInfo and C_PartyInfo.GetLootMethod then
+		method = C_PartyInfo.GetLootMethod()
+	elseif GetLootMethod then
+		method = GetLootMethod()
+	end
+	if method == "freeforall" or method == "personalloot" then return false end
+	local LM = Enum and Enum.LootMethod
+	if LM and (method == LM.Freeforall or method == LM.Personal) then return false end
+	if not LM and (method == 0 or method == 5) then return false end
+	return true
+end
 
 local function SnapshotLoot()
 	if not GetNumLootItems then return end
@@ -869,8 +981,12 @@ local function SnapshotLoot()
 			local link = isItem and GetLootSlotLink and GetLootSlotLink(slot)
 			local id = link and tonumber(link:match("item:(%d+)"))
 			if id then
-				local _, _, quantity, _, _, locked, isQuestItem = GetLootSlotInfo(slot)
+				local _, _, quantity, _, quality, locked, isQuestItem = GetLootSlotInfo(slot)
 				local source = GetLootSourceInfo and GetLootSourceInfo(slot)
+				if not locked and not isQuestItem and quality and GroupRollsLoot()
+					and quality >= ((GetLootThreshold and GetLootThreshold()) or 2) then
+					locked = true -- goes to a roll / the master looter
+				end
 				lootSlots[slot] = {
 					id = id,
 					count = (quantity and quantity > 0) and quantity or 1,
@@ -920,6 +1036,9 @@ local function FlushUnlooted()
 	for k, t in pairs(reported) do
 		if now - t > 300 then reported[k] = nil end
 	end
+	for k, t in pairs(rolling) do
+		if now - t > 300 then rolling[k] = nil end
+	end
 	for i = #pendingLost, 1, -1 do
 		local info = pendingLost[i]
 		if now - info.t >= LOST_GRACE then
@@ -927,7 +1046,7 @@ local function FlushUnlooted()
 			local gained = (BagCount(info.id) or 0) - info.bag
 			local missing = info.count - math.max(0, gained)
 			local key = info.source .. ":" .. info.id
-			if missing > 0 and not reported[key] then
+			if missing > 0 and not reported[key] and not rolling[info.id] then
 				reported[key] = now
 				AddUnlooted(info.id, missing, info.quest)
 			end
@@ -960,6 +1079,7 @@ events:RegisterEvent("LOOT_READY")
 events:RegisterEvent("LOOT_OPENED")
 events:RegisterEvent("LOOT_SLOT_CLEARED")
 events:RegisterEvent("LOOT_CLOSED")
+events:RegisterEvent("START_LOOT_ROLL")
 events:RegisterEvent("ADDON_LOADED")
 events:RegisterEvent("PLAYER_LOGIN")
 events:RegisterEvent("PLAYER_ENTERING_WORLD")
@@ -1003,6 +1123,10 @@ events:SetScript("OnEvent", function(_, event, arg1, ...)
 		if arg1 then lootSlots[arg1] = nil; lootCleared[arg1] = true end
 	elseif event == "LOOT_CLOSED" then
 		ReportUnlooted()
+	elseif event == "START_LOOT_ROLL" then
+		local link = arg1 and GetLootRollItemLink and GetLootRollItemLink(arg1)
+		local id = link and tonumber(link:match("item:(%d+)"))
+		if id then rolling[id] = GetTime() end
 	elseif event == "GET_ITEM_INFO_RECEIVED" or event == "BAG_UPDATE_DELAYED" then
 		local all = event == "BAG_UPDATE_DELAYED"
 		for _, b in ipairs(bars) do
@@ -1034,6 +1158,7 @@ local function Help()
 	Print("  /el qualitybg on|off    tint green/blue/epic/legendary/quest item bars")
 	Print("  /el rarity <0-6> on|off")
 	Print("  /el questmark on|off    gold ! on quest items")
+	Print("  /el tooltips on|off     item tooltip on mouseover (off = click-through bars)")
 	Print("  /el font <name>         SharedMedia font family (/el fonts)")
 	Print("  /el fontsize <n>        font size, 8-32")
 	Print("  /el outline none|outline|thick")
@@ -1148,6 +1273,12 @@ function handlers.questmark(v)
 	db.questmark = Bool(v)
 	Print("questmark = " .. tostring(db.questmark))
 	RefreshLayout()
+end
+
+function handlers.tooltips(v)
+	db.tooltips = Bool(v)
+	ApplyTooltips()
+	Print("tooltips = " .. tostring(db.tooltips))
 end
 
 function handlers.rarity(q, state)
@@ -1266,3 +1397,4 @@ SlashCmdList["ENHANCEDLOOT"] = Dispatch
 ns.SetBorder = SetBorder
 ns.GetLSM = GetLSM
 ns.RefreshLayout = RefreshLayout
+ns.ApplyTooltips = ApplyTooltips

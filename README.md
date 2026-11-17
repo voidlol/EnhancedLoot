@@ -29,6 +29,7 @@ Download a zip from [Releases](../../releases) and extract the `EnhancedLoot` fo
 | `/el unlooted on\|off` | red bars for items left in the loot window (default on) |
 | `/el rarity <0-6> on\|off` | item quality filter |
 | `/el questmark on\|off` | quest "!" icon before quest items |
+| `/el tooltips on\|off` | item tooltip on mouseover (off = bars stay click-through) |
 | `/el font <name>` / `/el fontsize <n>` / `/el outline none\|outline\|thick` | text style (SharedMedia aware, `/el fonts`) |
 | `/el scale <n>` / `/el width <n>` / `/el height <n>` | bar size |
 | `/el maxbars <n>` / `/el growth up\|down` | stack size and direction |
@@ -48,12 +49,16 @@ Settings are saved in `EnhancedLootDB` (per account). The settings panel can't o
 
 - Repeated gains of the same item, money or XP kind merge into the existing bar and reset its timer.
 - Quest items skip the quality filter and get Blizzard's quest "!" icon.
-- **Own loot** is identified by the looter's GUID from the event, falling back to the client's own localized loot
-  templates (`LOOT_ITEM_SELF*`), so it works in every language and never picks up other players' loot.
+- **Own loot** is only counted from the client's own localized "You receive loot / item" templates
+  (`LOOT_ITEM_SELF*`), so it works in every language. Group-roll lines ("You have selected Need for", "You won")
+  never count, and the looter's GUID rules out other players' loot.
   Kill vs. quest XP is told apart with the localized `COMBATLOG_XPGAIN_FIRSTPERSON` template.
 - **Unlooted items** are confirmed 1.5 s after the loot window closes, and only if the item neither appeared in the
-  loot chat nor in your bags, so fast autoloot doesn't cause false alarms. Items locked for a group roll are ignored,
-  and re-opening the same corpse within 5 minutes doesn't repeat them.
+  loot chat nor in your bags, so fast autoloot doesn't cause false alarms. Items that go to a group roll or the master
+  looter (at or above the loot threshold, or a roll was started for them) are never reported, and re-opening the
+  same corpse within 5 minutes doesn't repeat them.
+- Hovering a loot or unlooted bar shows the item's tooltip with the cursor; turning tooltips off keeps the bars
+  click-through, so they never eat clicks in combat.
 - Borders are exactly one physical pixel; bar size and position snap to the pixel grid for your UI scale.
 
 ## Files
